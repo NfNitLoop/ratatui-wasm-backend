@@ -151,6 +151,10 @@ impl AnsiBackend {
         self.push(anes::SwitchBufferToNormal)
     }
 
+    pub fn beep(&mut self) -> IOResult<()> {
+        self.push('\u{7}')
+    }
+
     fn diff_style(&mut self, old: &mut Option<Style>, new: Style) -> IOResult<()> {
         let base = old.unwrap_or_default();
 

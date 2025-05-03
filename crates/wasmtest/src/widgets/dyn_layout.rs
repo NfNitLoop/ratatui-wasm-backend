@@ -43,3 +43,13 @@ impl <'a> WidgetRef for DynLayout<'a> {
         }
     }
 }
+
+pub trait ToDynLayout<'a> {
+    fn dynamic(self) -> DynLayout<'a>;
+}
+
+impl <'a> ToDynLayout<'a> for Layout {
+    fn dynamic(self) -> DynLayout<'a> {
+        DynLayout::from(self)
+    }
+}

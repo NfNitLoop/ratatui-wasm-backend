@@ -1,7 +1,5 @@
 #!/usr/bin/env -S deno run --check
 
-import { delay } from "jsr:@std/async@1.0.12"
-
 import { Main } from "../pkg/wasmtest.js"
 
 

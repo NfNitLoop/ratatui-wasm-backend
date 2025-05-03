@@ -1,33 +1,32 @@
+mod widgets;
+mod js;
+mod texts;
+
 use std::collections::VecDeque;
 
-use ratatui_wasm_backend::anes::parser::KeyCode;
-use ratatui_wasm_backend::ctrl::Ctrl;
-use ratatui_wasm_backend::ratatui;
-use ratatui_wasm_backend::ratatui::border;
-use ratatui_wasm_backend::ratatui::layout::Constraint;
-use ratatui_wasm_backend::ratatui::layout::Layout;
-use ratatui_wasm_backend::ratatui::style::Color;
-use ratatui_wasm_backend::ratatui::text::ToLine as _;
-use ratatui_wasm_backend::ratatui::widgets::Borders;
-use ratatui_wasm_backend::types;
-use ratatui_wasm_backend::backend::{ AnsiBackend, AnsiBackendOptions };
-use ratatui_wasm_backend::anes::parser::{Parser, Sequence};
-use ratatui_wasm_backend::ctrl::GetCtrl as _;
+use js::regexp::{Match, RegExp};
+use ratatui_wasm_backend::{
+    anes::parser::{KeyCode, KeyModifiers, Parser, Sequence}, backend::{ AnsiBackend, AnsiBackendOptions }, ctrl::{Ctrl, GetCtrl as _}, ratatui:: {
+        self,
+        border,
+        layout::{Constraint, Direction, Layout},
+        style::Color,
+        text::{ToLine as _, ToText},
+        widgets::{Borders, Wrap},
+    }, types
+};
 
 use ratatui::{
     buffer::Buffer, layout::Rect, prelude::Backend, style::Stylize, text::{Line, Text}, widgets::{Block, Paragraph, Widget}, Frame, Terminal
 };
+use texts::SAMPLE;
 use types::{JsTermSizeCallback, JsWriter, log};
 use wasm_bindgen::prelude::*;
-use widgets::DynLayout;
+use widgets::{Hilighted, ToDynLayout};
 
-mod widgets;
+
 
 pub type Result<T, E = JsValue> = std::result::Result<T, E>;
-
-// TODO: Process keyboard input in Rust? 
-// Maybe: https://docs.rs/terminal-keycode/latest/terminal_keycode/
-// Anes, which I'm already using, also has a parser. Nice.
 
 /// The main entrypoint into your TUI.
 /// 
@@ -72,6 +71,11 @@ impl Main {
 
 
     pub fn render(&mut self) -> Result<()> {
+        if self.app.beep {
+            self.term.backend_mut().beep().map_err(|e| format!("{e}"))?;
+            self.app.beep = false;
+        }
+
         self.term.draw( |frame| {
             self.app.render(frame.area(), frame.buffer_mut())
         }).map_err(|err| err.to_string())?;
@@ -97,17 +101,51 @@ impl Drop for Main {
 
 
 /// Application state.
-#[derive(Default)]
 pub struct App {
     counter: u16,
-    seqs: VecDeque<Sequence>,
+
+    // as input by the user:
     regex: String,
+
+    // Sample search text.
+    body: String,
+
+    // Should we beep the terminal on the next render?
+    beep: bool,
+
+    /// Was there an error compiling the regex or making the match?
+    error: Option<String>,
+
+    matches: Vec<Match>,
+
+    // Show the debug pane
+    debug: bool,
+
+    // Used for debugging
+    seqs: VecDeque<Sequence>,
+    
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self { 
+            counter: Default::default(), 
+            seqs: Default::default(), 
+            regex: "f(oo)(bar)?".into(),
+            
+            body: SAMPLE.into(),
+            debug: false,
+            beep: false,
+            error: None,
+            matches: vec![],
+        }
+    }
 }
 
 impl App {
     fn recv_sequence(&mut self, seq: Sequence) -> Result<()> {
         match seq {
-            Sequence::Key(code, _modifiers) => match code {
+            Sequence::Key(code, modifiers) => match code {
                 KeyCode::Up => {
                     self.counter += 1;
                 },
@@ -125,34 +163,72 @@ impl App {
                 },
                 seq if seq.ctrl() == Some(Ctrl::C) => {
                     Err("quit")?;
-                }
-                code @ KeyCode::Char(c) if code.ctrl().is_none() => {
-                    self.regex.push(c);
                 },
-                KeyCode::Backspace => {
-                    self.regex.pop();
+                seq if seq.ctrl().is_some() => {
+                    self.beep = true;
                 }
-                KeyCode::Delete => {
-                    self.regex.pop();
+                KeyCode::Char('d') if modifiers == KeyModifiers::ALT => {
+                    self.toggle_debug();
+                },
+                _ if !modifiers.is_empty() => {
+                    self.beep = true;
+                }
+                KeyCode::Char(c) => {
+                    self.got_char(c);
+                },
+                KeyCode::Backspace | KeyCode::Delete=> {
+                    self.backspace();
                 }
                 _ => {
-                    // TODO: set beep?
+                    self.beep = true;
                 }
             },
             Sequence::Mouse(_,_) => {},
             Sequence::CursorPosition(_,_) => {},
         };
 
-        self.add_seq(seq);
+        self.add_debug_seq(seq);
 
         Ok(())
     }
 
-    fn add_seq(&mut self, seq: Sequence) {
+    fn add_debug_seq(&mut self, seq: Sequence) {
         self.seqs.push_back(seq);
         if self.seqs.len() > 10 {
             self.seqs.pop_front();
         }
+    }
+
+    fn toggle_debug(&mut self) {
+        self.debug = !self.debug;
+    }
+
+    fn got_char(&mut self, c: char) {
+        // TODO: Dispatch depending on active pane:
+        self.regex.push(c);
+        self.calc_matches();
+    }
+
+    fn backspace(&mut self) {
+        // TODO: Dispatch depend on active pane:
+        self.regex.pop();
+        self.calc_matches();
+    }
+
+    fn calc_matches(&mut self) {
+        // TODO: Allow dynamically setting the flags:
+        let flags = "dig";
+
+        let re = match RegExp::new(self.regex.as_str(), flags) {
+            Ok(re) => re,
+            Err(err) => {
+                self.error = Some(format!("{err}"));
+                return;
+            }
+        };
+
+        self.matches = re.match_all(self.body.as_str());
+        self.error = None;
     }
 }
 
@@ -165,9 +241,7 @@ fn block() -> Block<'static> {
 
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-
-
-        let mut layout = DynLayout::from(Layout::default().direction(ratatui::layout::Direction::Vertical));
+        let mut layout = Layout::default().direction(Direction::Vertical).dynamic();
 
         // title:
         layout.add(
@@ -182,17 +256,37 @@ impl Widget for &App {
                 .block(block().title(" RegEx ".to_line().right_aligned()))
         );
 
+        if let Some(error) = &self.error {
+            let title = " Error ".to_line().right_aligned();
+            let block = block().title(title).border_style(Color::Red);
+            layout.add(
+                Constraint::Length(3),
+                Paragraph::new(error.to_text())
+                    .block(block)
+                    .wrap(Wrap{trim: false})
+            )
+        }
 
-
-        // Body:
+        // Main text box:
         layout.add(Constraint::Fill(5), {
-            let title = " Body ".to_line().right_aligned();
-            Paragraph::new(Text::from("body goes here"))
-                .block(block().title(title).borders(Borders::ALL))
+            let title = " Text ".to_line().right_aligned();
+            let matches = self.matches.len();
+            let match_txt = if matches == 0 { "".to_string() } else {
+                format!(" {matches} Matches ")
+            };
+            let match_txt = Line::from(match_txt).left_aligned();
+            Hilighted {
+                block: block()
+                    .title(title)
+                    .title(match_txt)
+                    .borders(Borders::ALL),
+                matches: &self.matches,
+                text: &self.body,
+            }
         });
 
 
-        if true {
+        if self.debug {
             layout.add( Constraint::Min(12), {
                 let title = " Event Debug ".to_line().right_aligned();
                 let seq_lines = self.seqs.iter()
@@ -214,6 +308,10 @@ impl Widget for &App {
             Line::from(vec![
                 "Quit ".into(),
                 "<Esc>".fg(Color::Yellow).bold(),
+                " ".into(),
+                "Debug".into(),
+                " ".into(),
+                "<Alt-D>".fg(Color::Yellow).bold(),
             ]).centered()
         });
 
