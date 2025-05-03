@@ -1,0 +1,12 @@
+[package]
+edition = "2024"
+name = "wasmtest"
+publish = false
+version = "0.0.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "*"
+ratatui-wasm-backend = { path = "../ratatui-wasm-backend" }

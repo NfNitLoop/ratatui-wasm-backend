@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [ 
+    "crates/ratatui-wasm-backend",
+    "crates/wasmtest",
+]
+
+
+# See: https://rustwasm.github.io/wasm-bindgen/examples/add.html
+[profile.release]
+lto = true

@@ -1,0 +1,10 @@
+{
+    "tasks": {
+        "rerun": {
+            "command": "./deno/example.ts",
+            "dependencies": ["build"]
+        },
+        "run": "./deno/example.ts",
+        "build": "wasm-pack build"
+    }
+}
