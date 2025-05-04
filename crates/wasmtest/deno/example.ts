@@ -1,6 +1,7 @@
 #!/usr/bin/env -S deno run --check
 
-import { Main } from "../pkg/wasmtest.js"
+// @ts-types="../pkg/wasmtest.d.ts"
+import { Main, Writer } from "../pkg/wasmtest.js"
 
 
 // main(Deno.consoleSize, (bytes: Uint8Array) => {
@@ -16,8 +17,8 @@ const size = () => {
     // }
 }
 
-const out = (bytes: Uint8Array) => {
-    Deno.stdout.writeSync(bytes)
+const out: Writer = (bytes: Uint8Array) => {
+    return Deno.stdout.writeSync(bytes)
 }
 const ui = new Main(size, out)
 ui.render()

@@ -1,4 +1,7 @@
+use std::mem;
+
 use ratatui_wasm_backend::ratatui::{buffer::Buffer, layout::Rect, style::{Color, Stylize as _}, text::{Line, Span, Text, ToSpan}, widgets::{Block, Paragraph, Widget, WidgetRef, Wrap}};
+use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::js::regexp::Match;
 
@@ -16,37 +19,55 @@ pub struct Hilighted<'a> {
 impl <'a> WidgetRef for Hilighted<'a> {
     fn render_ref(&self, area: Rect, buf: &mut Buffer)
     {
+        let mut lines = vec![];
         let mut spans = vec![];
 
-        // Javascript regex gives "character" offsets, but Rust wants utf-8-byte offsets.
-        let char_indices: Vec<usize> = self.text.char_indices().map(|ci| ci.0).collect();
-        let mut prev_rust_index: usize = 0;
+        let mut matches = self.matches.iter().peekable();
 
-        for mat in self.matches {
-            let Some(&rust_start_index) = char_indices.get(mat.start) else {
-                break;
-            };
-            let Some(&rust_end_index) = char_indices.get(mat.end) else {
-                break;
-            };
 
-            // Add span for non-matched text we've skipped:
-            if prev_rust_index < rust_start_index {
-                let substr = self.text.get(prev_rust_index..rust_start_index).expect("non-matched text");
-                spans.push(Span::from(substr));
-                prev_rust_index = rust_start_index;
+        for (char_index, (byte_index, ch)) in self.text.char_indices().enumerate() {
+            loop {
+                let Some(mat) = matches.peek() else {
+                    break;
+                };
+                if mat.end <= char_index {
+                    matches.next();
+                } else {
+                    break;
+                }
             }
 
-            let substr = self.text.get(rust_start_index..rust_end_index).expect("getting match range");
-            spans.push(Span::from(substr).black().on_yellow());
-            prev_rust_index = rust_end_index;
-        } // for-loop
+            // No need to handle CR/LF: can't input LF.
+            if ch == '\n' {
+                let owned_spans = spans.clone();
+                lines.push(Line::from(owned_spans));
+                spans.clear();
+            }
 
-        // Add span for any remaining text:
-        let substr = self.text.get(prev_rust_index..).expect("getting last unmatched range");
-        spans.push(Span::from(substr));
+            let hi = match matches.peek() {
+                None => false,
+                Some(mat) => {
+                    mat.start <= char_index && char_index < mat.end
+                },
+            };
 
-        let text = Text::from(Line::from(spans));
+            // quite brute force, but will work with multi-line strings.
+            let end_char = (1..).map(|offset| offset + byte_index).filter(|it| self.text.is_char_boundary(*it)).next().unwrap();
+            let Some(substr) = self.text.get(byte_index..end_char) else {
+                panic!("slice failed");
+            };
+            if hi {
+                spans.push(substr.black().on_yellow())
+            } else {
+                spans.push(substr.into())
+            }
+        }
+
+        if !spans.is_empty() {
+            lines.push(Line::from(spans));
+        }
+
+        let text = Text::from(lines);
 
         Paragraph::new(text).block(self.block.clone()).wrap(Wrap{trim: false}).render(area, buf);
     }

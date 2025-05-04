@@ -12,12 +12,12 @@ use ratatui_wasm_backend::{
         layout::{Constraint, Direction, Layout},
         style::Color,
         text::{ToLine as _, ToText},
-        widgets::{Borders, Wrap},
+        widgets::{Borders, Padding, Wrap},
     }, types
 };
 
 use ratatui::{
-    buffer::Buffer, layout::Rect, prelude::Backend, style::Stylize, text::{Line, Text}, widgets::{Block, Paragraph, Widget}, Frame, Terminal
+    buffer::Buffer, layout::Rect, prelude::Backend, style::Stylize, text::{Line, Text}, widgets::{Block, Paragraph, Widget}
 };
 use texts::SAMPLE;
 use types::{JsTermSizeCallback, JsWriter, log};
@@ -102,8 +102,6 @@ impl Drop for Main {
 
 /// Application state.
 pub struct App {
-    counter: u16,
-
     // as input by the user:
     regex: String,
 
@@ -128,17 +126,18 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        Self { 
-            counter: Default::default(), 
+        let mut new_self = Self { 
             seqs: Default::default(), 
-            regex: "f(oo)(bar)?".into(),
+            regex: "\\w+ism\\b|\\w+ist?s\\b|nation(al)?|\\d?[02468][.]".into(),
             
             body: SAMPLE.into(),
             debug: false,
             beep: false,
             error: None,
             matches: vec![],
-        }
+        };
+        new_self.calc_matches();
+        new_self
     }
 }
 
@@ -146,18 +145,6 @@ impl App {
     fn recv_sequence(&mut self, seq: Sequence) -> Result<()> {
         match seq {
             Sequence::Key(code, modifiers) => match code {
-                KeyCode::Up => {
-                    self.counter += 1;
-                },
-                KeyCode::Down => {
-                    self.counter -= 1;
-                },
-                KeyCode::Left => {
-                    self.counter -= 10;
-                },
-                KeyCode::Right => {
-                    self.counter += 10;
-                },
                 KeyCode::Esc => {
                     Err("quit")?;
                 },
@@ -217,12 +204,13 @@ impl App {
 
     fn calc_matches(&mut self) {
         // TODO: Allow dynamically setting the flags:
-        let flags = "dig";
+        let flags = "digm";
 
         let re = match RegExp::new(self.regex.as_str(), flags) {
             Ok(re) => re,
             Err(err) => {
                 self.error = Some(format!("{err}"));
+                self.matches.clear();
                 return;
             }
         };
@@ -236,9 +224,11 @@ fn block() -> Block<'static> {
     Block::bordered()
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Color::DarkGray)
-        .borders(border!(TOP, LEFT, RIGHT))        
+        .borders(border!(TOP, LEFT, RIGHT))
+        .padding(Padding::bottom(1))
 }
 
+// TODO: Switch to a statefulWidgetRef so that we can get back the cursor position after render.
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let mut layout = Layout::default().direction(Direction::Vertical).dynamic();
@@ -251,7 +241,7 @@ impl Widget for &App {
 
         // regex
         layout.add(
-            Constraint::Length(2), 
+            Constraint::Length(3), 
             Paragraph::new( Text::from(self.regex.as_str()) )
                 .block(block().title(" RegEx ".to_line().right_aligned()))
         );
@@ -274,11 +264,11 @@ impl Widget for &App {
             let match_txt = if matches == 0 { "".to_string() } else {
                 format!(" {matches} Matches ")
             };
-            let match_txt = Line::from(match_txt).left_aligned();
+            let match_txt = Line::from(match_txt).centered();
             Hilighted {
                 block: block()
                     .title(title)
-                    .title(match_txt)
+                    .title_bottom(match_txt)
                     .borders(Borders::ALL),
                 matches: &self.matches,
                 text: &self.body,
