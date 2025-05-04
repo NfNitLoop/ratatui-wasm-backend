@@ -149,10 +149,12 @@ where E: Into<Box<dyn std::error::Error + Send + Sync>>
 }
 
 impl AnsiBackend {
+    /// Enable terminal "Alternate Buffer Mode"
     pub fn exclusive(&mut self) -> IOResult<()> {
         self.push(anes::SwitchBufferToAlternate)
     }
 
+    /// Disable terminal "Alternate Buffer Mode"
     pub fn normal(&mut self) -> IOResult<()> {
         self.push(anes::SwitchBufferToNormal)
     }
