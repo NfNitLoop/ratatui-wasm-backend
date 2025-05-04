@@ -9,4 +9,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 wasm-bindgen = "*"
-ratatui-wasm-backend = { path = "../ratatui-wasm-backend" }
+
+[dependencies.ratatui-wasm-backend]
+path = "../ratatui-wasm-backend"
+features = ["parser"]
+
+
+[dependencies.ratatui]
+version = "*" # whatever ratatui-wasm-backend uses.
+default-features = false
+features = ["unstable-widget-ref", "macros"]

@@ -246,7 +246,7 @@ dependencies = [
 
 [[package]]
 name = "ratatui-wasm-backend"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "anes",
  "ratatui",
@@ -257,6 +257,7 @@ dependencies = [
 name = "regtest"
 version = "0.0.0"
 dependencies = [
+ "ratatui",
  "ratatui-wasm-backend",
  "wasm-bindgen",
 ]

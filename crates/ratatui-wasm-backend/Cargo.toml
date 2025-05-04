@@ -1,27 +1,43 @@
 [package]
 edition = "2024"
 name = "ratatui-wasm-backend"
-publish = false
-version = "0.0.0"
+version = "0.1.0"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+
+# Enables anes/parser and the `ctrl` module to parse "Control Characters".
+#
+# !!!: If you use this feature, be aware of this bug:
+# https://github.com/qwandor/anes-rs/issues/39
+# You can work around it by patching to use this fixed version:
+#   anes.git = "https://github.com/nfnitloop/anes-rs.git"
+#   # anes.branch = "parse-backspace"
+#   anes.rev = "4fbce0423fd4aab063f6c8122dc33915fb53f2e2"
+parser = ["anes/parser"]
+
 [dependencies]
 wasm-bindgen = "*"
 
-ratatui.version = "0.29.0"
+[dependencies.ratatui]
+version = "0.29.0"
 # Crossterm doesn't support WASM.
 # See: https://github.com/crossterm-rs/crossterm/issues/654
 # So we disable crossterm and write our own Backend:
-ratatui.default-features = false
-ratatui.features = ["unstable-widget-ref", "macros"]
+default-features = false
 
-# We use Anes to implement the backend. It also has a decent input event parser.
-# We export it for easy reuse:
-anes.features = [ "parser" ]
-# anes.version = "0.2.0"
-anes.git = "https://github.com/nfnitloop/anes-rs.git"
-# anes.branch = "parse-backspace"
-anes.rev = "4fbce0423fd4aab063f6c8122dc33915fb53f2e2"
+[dependencies.anes]
+# We use Anes to implement the backend for terminal output.
+# It also has a decent input event parser, which you can enable with the "parser" feature.
+# We export it for easy reuse.
+version = "0.2.0"
+
+# Locally, we use the patched version of anes.
+# You should only need it if you use the "parser" feature.
+git = "https://github.com/nfnitloop/anes-rs.git"
+rev = "4fbce0423fd4aab063f6c8122dc33915fb53f2e2" # branch = "parse-backspace"
+
 
