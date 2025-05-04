@@ -2,6 +2,7 @@
 edition = "2024"
 name = "ratatui-wasm-backend"
 version = "0.1.0"
+repository = "https://github.com/NfNitLoop/ratatui-wasm-backend"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
