@@ -50,15 +50,14 @@ impl ratatui::backend::Backend for AnsiBackend {
         let mut prev_style: Option<Style> = None;
 
         for (x, y, cell) in content {
-            // if cell.skip {
-            //     continue;
-            // }
+            if cell.skip {
+                continue;
+            }
 
             let mut new_pos = Position { x, y };
             if Some(new_pos) != self.pos {
                 self.set_cursor_position(new_pos)?;
             }
-            // TODO: Styles:
 
             self.diff_style(&mut prev_style, cell.style())?;
 
@@ -109,6 +108,9 @@ impl ratatui::backend::Backend for AnsiBackend {
     }
 
     fn clear(&mut self) -> IOResult<()> {
+        // If there's a remaining color it'll set the whole screen to that color. We don't want that:
+        self.push(anes::ResetAttributes)?;
+
         self.push(anes::ClearBuffer::All)
     }
 
@@ -125,6 +127,9 @@ impl ratatui::backend::Backend for AnsiBackend {
     }
 
     fn flush(&mut self) -> IOResult<()> {
+        if self.buf.is_empty() {
+            return Ok(());
+        }
         let bytes = mem::take(&mut self.buf);
         self.stdout_writer
             .call(JsValue::NULL, bytes.into_boxed_slice())
@@ -132,12 +137,13 @@ impl ratatui::backend::Backend for AnsiBackend {
                 log_value(err);
                 io_err("Writing to stdout threw an error")
             })?;
-        self.buf.clear();
         Ok(())
     }
 }
 
-fn io_err(message: &str) -> std::io::Error {
+fn io_err<E>(message: E) -> std::io::Error 
+where E: Into<Box<dyn std::error::Error + Send + Sync>>
+{
     use std::io::ErrorKind::Other;
     IOError::new(Other, message)
 }
@@ -156,54 +162,46 @@ impl AnsiBackend {
     }
 
     fn diff_style(&mut self, old: &mut Option<Style>, new: Style) -> IOResult<()> {
+        if old.is_none() {
+            // If there was no previous style, this is likely the beginning of a render.
+            // Don't carry over any styles from the previous render:
+            self.push(anes::ResetAttributes)?;
+        }
         let base = old.unwrap_or_default();
 
+        if base == new {
+            return Ok(());
+        }
+
         // Modifiers need to come before colors:
+        // Thsi whole add/sub thing is a nightmare.
+        // Especially given that Bold/Faint/Normal all cancel each other out.
+        // Just reset styles and apply the "add" ones when they differ:
         let base_mod = base.add_modifier - base.sub_modifier;
         let new_mod = new.add_modifier - new.sub_modifier;
-        let to_enable = new_mod - base_mod;
-        let to_disable = base_mod - new_mod;
-        for modi in to_enable.iter() {
-            use anes::Attribute as Attr;
-            use anes::SetAttribute as Set;
-            let attr = match modi {
-                Modifier::BOLD => Attr::Bold,
-                Modifier::CROSSED_OUT => Attr::Crossed,
-                Modifier::DIM => Attr::Faint,
-                Modifier::HIDDEN => Attr::Conceal,
-                Modifier::ITALIC => Attr::Italic,
-                Modifier::RAPID_BLINK | Modifier::SLOW_BLINK => Attr::Blink,
-                Modifier::REVERSED => Attr::Reverse,
-                Modifier::UNDERLINED => Attr::Underline,
-                _ => panic!("unknown modifier"),
-            };
-            self.push(Set(attr))?;
+        if base_mod != new_mod {
+            self.push(anes::ResetAttributes)?;
+            for modi in new_mod.iter() {
+                use anes::Attribute as Attr;
+                use anes::SetAttribute as Set;
+                let attr = match modi {
+                    Modifier::BOLD => Attr::Bold,
+                    Modifier::CROSSED_OUT => Attr::Crossed,
+                    Modifier::DIM => Attr::Faint,
+                    Modifier::HIDDEN => Attr::Conceal,
+                    Modifier::ITALIC => Attr::Italic,
+                    Modifier::RAPID_BLINK | Modifier::SLOW_BLINK => Attr::Blink,
+                    Modifier::REVERSED => Attr::Reverse,
+                    Modifier::UNDERLINED => Attr::Underline,
+                    _ => panic!("unknown modifier"),
+                };
+                self.push(Set(attr))?;
+            }
         }
-        for modi in to_disable.iter() {
-            use anes::Attribute as Attr;
-            use anes::SetAttribute as Set;
-            let attr = match modi {
-                Modifier::BOLD => Attr::Normal, // !!!
-                Modifier::CROSSED_OUT => Attr::CrossedOff,
-                Modifier::DIM => Attr::Normal, // !!!
-                Modifier::HIDDEN => Attr::ConcealOff,
-                Modifier::ITALIC => Attr::ItalicOff,
-                Modifier::RAPID_BLINK | Modifier::SLOW_BLINK => Attr::BlinkOff,
-                Modifier::REVERSED => Attr::ReverseOff,
-                Modifier::UNDERLINED => Attr::UnderlineOff,
-                _ => panic!("unknown modifier"),
-            };
-            self.push(Set(attr))?;
-        }
+        self.push(anes::SetBackgroundColor(ansi_color(new.bg)))?;
+        self.push(anes::SetForegroundColor(ansi_color(new.fg)))?;
 
-        if base.bg != new.bg {
-            self.push(anes::SetBackgroundColor(ansi_color(new.bg)))?;
-        }
-        if base.fg != new.fg {
-            self.push(anes::SetForegroundColor(ansi_color(new.fg)))?;
-        }
-
-        // TODO: more styles
+        // TODO: more styles?
 
         *old = Some(new);
 
