@@ -3,6 +3,9 @@ edition = "2024"
 name = "ratatui-wasm-backend"
 version = "0.1.0"
 repository = "https://github.com/NfNitLoop/ratatui-wasm-backend"
+description = "Allows writing Ratatui terminal apps that target WASM."
+license-file = "LICENSE"
+keywords = ["tui", "ratatui", "wasm"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -21,7 +24,7 @@ default = []
 parser = ["anes/parser"]
 
 [dependencies]
-wasm-bindgen = "*"
+wasm-bindgen = "0.2"
 
 [dependencies.ratatui]
 version = "0.29.0"
