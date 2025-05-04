@@ -2,7 +2,7 @@
 resolver = "2"
 members = [ 
     "crates/ratatui-wasm-backend",
-    "crates/wasmtest",
+    "crates/regtest",
 ]
 
 

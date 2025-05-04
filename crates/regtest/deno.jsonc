@@ -1,0 +1,48 @@
+{
+    "name": "@nfnitloop/regtest",
+    "version": "0.1.0",
+    "tasks": {
+        "rerun": {
+            "command": "./deno/main.ts",
+            "dependencies": ["build"]
+        },
+        "rerun:debug": {
+            "command": "./deno/main.ts",
+            "dependencies": ["build:debug"]
+        },
+        "run": "./deno/main.ts",
+        "build": "wasm-pack build",
+        "build:debug": "wasm-pack build --debug",
+        "test": {
+            "dependencies": ["check"]
+        },
+        "check": {
+            "dependencies": ["check:types", "check:publish", "check:lint"]
+        },
+        "check:publish": {
+            "dependencies": ["check:types"],
+            "command": "deno publish --dry-run --allow-dirty"
+        },
+        "check:types": {
+            "command": "deno check"
+        },
+        "check:lint": {
+            "dependencies": ["check:types"],
+            "command": "deno lint deno/main.ts"
+        }
+    },
+    "publish": {
+        "include": [
+            "deno/main.ts",
+            "pkg/*"
+        ],
+        "exclude": [
+            // remove gitignore:
+            "!pkg/",
+            "pkg/package.json"
+        ]
+    },
+    "exports": {
+        ".": "./deno/main.ts"
+    }
+}

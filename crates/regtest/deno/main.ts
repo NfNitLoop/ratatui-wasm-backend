@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run --check
 
-// @ts-types="../pkg/wasmtest.d.ts"
-import { Main, Writer } from "../pkg/wasmtest.js"
+// @ts-types="../pkg/regtest.d.ts"
+import { Main, type Writer } from "../pkg/regtest.js"
 
 
 // main(Deno.consoleSize, (bytes: Uint8Array) => {
