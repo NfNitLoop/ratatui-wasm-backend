@@ -12,4 +12,4 @@ This repoistory has multiple crates, see more complete docs here:
 
 
 [ratatui-wasm-backend]: ./crates/ratatui-wasm-backend/
-[regetst]: ./crates/regtest/
+[regtest]: ./crates/regtest/
