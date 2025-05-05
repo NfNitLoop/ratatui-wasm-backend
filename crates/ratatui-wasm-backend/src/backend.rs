@@ -1,9 +1,8 @@
 use std::{fmt::Display, io::Write as _, mem};
 
+use anes::{ResetAttributes, SetAttribute, SetBackgroundColor, SetForegroundColor};
 use ratatui::{
-    backend::WindowSize,
-    layout::Position,
-    style::{Modifier, Style},
+    backend::WindowSize, layout::Position, prelude::Backend, style::{Color, Modifier}
 };
 use std::io::Error as IOError;
 use std::io::Result as IOResult;
@@ -47,7 +46,10 @@ impl ratatui::backend::Backend for AnsiBackend {
     where
         I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
     {
-        let mut prev_style: Option<Style> = None;
+        let mut prev_pos: Option<Position> = None;
+        let mut prev_mod: Option<Modifier> = None;
+        let mut prev_fg: Option<Color> = None;
+        let mut prev_bg: Option<Color> = None;
 
         for (x, y, cell) in content {
             if cell.skip {
@@ -55,20 +57,43 @@ impl ratatui::backend::Backend for AnsiBackend {
             }
 
             let mut new_pos = Position { x, y };
-            if Some(new_pos) != self.pos {
+            if let Some(prev_pos) = prev_pos {
+                if new_pos != prev_pos {
+                    self.set_cursor_position(new_pos)?;
+                }
+            } else {
                 self.set_cursor_position(new_pos)?;
             }
+            prev_pos = Some(new_pos);
 
-            self.diff_style(&mut prev_style, cell.style())?;
+            self.apply_modifiers(&mut prev_mod, &cell.modifier)?;
+
+            
+            // TODO: colors
+            if prev_bg != Some(cell.bg) {
+                self.push(SetBackgroundColor(ansi_color(cell.bg)))?;
+                prev_bg = Some(cell.bg);
+            }
+            
+            if prev_fg != Some(cell.fg) {
+                self.push(SetForegroundColor(ansi_color(cell.fg)))?;
+                prev_fg = Some(cell.fg);
+            }
+
 
             self.buf.extend_from_slice(cell.symbol().as_bytes());
             // TODO: Check unicode width. (Why doesn't Ratatui give us this?)
             let width = 1;
             new_pos.x += width;
             // TODO: Wrap?
-            self.pos = Some(new_pos)
+            prev_pos = Some(new_pos)
         }
-        self.flush()
+        self.flush()?;
+        if let Some(pos) = prev_pos {
+            self.pos = Some(pos);
+        }
+
+        Ok(())
     }
 
     fn hide_cursor(&mut self) -> IOResult<()> {
@@ -151,11 +176,15 @@ where E: Into<Box<dyn std::error::Error + Send + Sync>>
 impl AnsiBackend {
     /// Enable terminal "Alternate Buffer Mode"
     pub fn exclusive(&mut self) -> IOResult<()> {
-        self.push(anes::SwitchBufferToAlternate)
+        self.push(anes::SwitchBufferToAlternate)?;
+        self.set_cursor_position(Position{x: 0, y: 0})?;
+        self.clear()
     }
 
     /// Disable terminal "Alternate Buffer Mode"
     pub fn normal(&mut self) -> IOResult<()> {
+        self.set_cursor_position(Position{x: 0, y: 0})?;
+        self.clear()?;
         self.push(anes::SwitchBufferToNormal)
     }
 
@@ -163,50 +192,74 @@ impl AnsiBackend {
         self.push('\u{7}')
     }
 
-    fn diff_style(&mut self, old: &mut Option<Style>, new: Style) -> IOResult<()> {
-        if old.is_none() {
-            // If there was no previous style, this is likely the beginning of a render.
-            // Don't carry over any styles from the previous render:
-            self.push(anes::ResetAttributes)?;
-        }
-        let base = old.unwrap_or_default();
-
-        if base == new {
-            return Ok(());
-        }
-
-        // Modifiers need to come before colors:
-        // Thsi whole add/sub thing is a nightmare.
-        // Especially given that Bold/Faint/Normal all cancel each other out.
-        // Just reset styles and apply the "add" ones when they differ:
-        let base_mod = base.add_modifier - base.sub_modifier;
-        let new_mod = new.add_modifier - new.sub_modifier;
-        if base_mod != new_mod {
-            self.push(anes::ResetAttributes)?;
-            for modi in new_mod.iter() {
-                use anes::Attribute as Attr;
-                use anes::SetAttribute as Set;
-                let attr = match modi {
-                    Modifier::BOLD => Attr::Bold,
-                    Modifier::CROSSED_OUT => Attr::Crossed,
-                    Modifier::DIM => Attr::Faint,
-                    Modifier::HIDDEN => Attr::Conceal,
-                    Modifier::ITALIC => Attr::Italic,
-                    Modifier::RAPID_BLINK | Modifier::SLOW_BLINK => Attr::Blink,
-                    Modifier::REVERSED => Attr::Reverse,
-                    Modifier::UNDERLINED => Attr::Underline,
-                    _ => panic!("unknown modifier"),
-                };
-                self.push(Set(attr))?;
+    fn apply_modifiers(&mut self, old: &mut Option<Modifier>, new: &Modifier) -> IOResult<()> {
+        if let Some(prev) = old {
+            if prev == new {
+                return Ok(());
             }
         }
-        self.push(anes::SetBackgroundColor(ansi_color(new.bg)))?;
-        self.push(anes::SetForegroundColor(ansi_color(new.fg)))?;
 
-        // TODO: more styles?
+        let prev = match old {
+            Some(prev) => prev.clone(),
+            None => {
+                // We don't know what the previous state was, so reset it to be safe:
+                self.push(ResetAttributes)?;
+                Modifier::empty()
+            }
+        };
 
-        *old = Some(new);
+        let to_set = *new - prev;
+        let to_del = prev - *new;
 
+        use SetAttribute as Set;
+        use anes::Attribute as AA;
+
+        // Bold/faint/normal are all mutually exclusive
+        if to_set.contains(Modifier::BOLD) {
+            self.push(Set(AA::Bold))?;
+        } else if to_set.contains(Modifier::DIM) {
+            self.push(Set(AA::Faint))?;
+        } else if to_del.contains(Modifier::DIM) || to_del.contains(Modifier::BOLD) {
+            self.push(Set(AA::Normal))?;
+        }
+
+        if to_set.contains(Modifier::CROSSED_OUT) {
+            self.push(Set(AA::Crossed))?;
+        } else if to_del.contains(Modifier::CROSSED_OUT) {
+            self.push(Set(AA::CrossedOff))?;
+        }
+
+        if to_set.contains(Modifier::HIDDEN) {
+            self.push(Set(AA::Conceal))?;
+        } else if to_del.contains(Modifier::HIDDEN) {
+            self.push(Set(AA::ConcealOff))?;
+        }
+
+        if to_set.contains(Modifier::ITALIC) {
+            self.push(Set(AA::Italic))?;
+        } else if to_del.contains(Modifier::ITALIC) {
+            self.push(Set(AA::ItalicOff))?;
+        }
+
+        if to_set.contains(Modifier::RAPID_BLINK) || to_set.contains(Modifier::SLOW_BLINK) {
+            self.push(Set(AA::Blink))?;
+        } else if to_del.contains(Modifier::RAPID_BLINK) || to_del.contains(Modifier::SLOW_BLINK) {
+            self.push(Set(AA::BlinkOff))?;
+        }
+
+        if to_set.contains(Modifier::REVERSED) {
+            self.push(Set(AA::Reverse))?;
+        } else if to_del.contains(Modifier::REVERSED) {
+            self.push(Set(AA::ReverseOff))?;
+        }
+
+        if to_set.contains(Modifier::UNDERLINED) {
+            self.push(Set(AA::Underline))?;
+        } else if to_del.contains(Modifier::UNDERLINED) {
+            self.push(Set(AA::UnderlineOff))?;
+        }
+
+        *old = Some(*new);
         Ok(())
     }
 
@@ -215,13 +268,9 @@ impl AnsiBackend {
     }
 }
 
-fn ansi_color(color: Option<ratatui::style::Color>) -> anes::Color {
+fn ansi_color(color: ratatui::style::Color) -> anes::Color {
     use anes::Color as AColor;
     use ratatui::style::Color as RColor;
-
-    let Some(color) = color else {
-        return anes::Color::Default;
-    };
 
     match color {
         RColor::Reset => AColor::Default,
