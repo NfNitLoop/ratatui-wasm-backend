@@ -1,7 +1,7 @@
 [package]
 edition = "2024"
 name = "ratatui-wasm-backend"
-version = "0.1.0"
+version = "0.1.1"
 repository = "https://github.com/NfNitLoop/ratatui-wasm-backend"
 description = "Allows writing Ratatui terminal apps that target WASM."
 license-file = "LICENSE"
