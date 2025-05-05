@@ -93,7 +93,7 @@ impl Drop for Main {
         if let Err(err) = self.term.backend_mut().normal() {
             log(err.to_string());
         };
-        if let Err(err) = self.term.flush() {
+        if let Err(err) = self.term.backend_mut().flush() {
             log(err.to_string());
         }
     }

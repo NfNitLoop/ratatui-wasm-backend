@@ -14,7 +14,6 @@ The goals of this implementation are:
 Known issues: 
  * Probably not the most efficient at the codes that it outputs.
  * Not yet well tested. But I'm open to bug reports & PRs!
- * When exiting 
 
 Usage
 -----
