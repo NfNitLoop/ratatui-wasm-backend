@@ -2,7 +2,7 @@ mod widgets;
 mod js;
 mod texts;
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, rc::Rc};
 
 use js::regexp::{Match, RegExp};
 use ratatui_wasm_backend::{
@@ -17,12 +17,12 @@ use ratatui_wasm_backend::{
 };
 
 use ratatui::{
-    buffer::Buffer, layout::Rect, prelude::Backend, style::Stylize, text::{Line, Text}, widgets::{Block, Paragraph, Widget}
+    buffer::Buffer, layout::Rect, prelude::Backend, style::Stylize, text::{Line, Text}, widgets::{Block, Paragraph, Widget, WidgetRef}
 };
 use texts::SAMPLE;
 use types::{JsTermSizeCallback, JsWriter, log};
 use wasm_bindgen::prelude::*;
-use widgets::{Hilighted, ToDynLayout};
+use widgets::{utils::ref_or_dyn::RefOrDyn, Blocked, TextBox, ToDynLayout};
 
 
 
@@ -106,7 +106,7 @@ pub struct App {
     regex: String,
 
     // Sample search text.
-    body: String,
+    body: TextBox,
 
     // Should we beep the terminal on the next render?
     beep: bool,
@@ -215,7 +215,9 @@ impl App {
             }
         };
 
-        self.matches = re.match_all(self.body.as_str());
+        // TODO
+        self.matches = re.match_all(self.body.text());
+
         self.error = None;
     }
 }
@@ -229,35 +231,39 @@ fn block() -> Block<'static> {
 }
 
 // TODO: Switch to a statefulWidgetRef so that we can get back the cursor position after render.
-impl Widget for &App {
+impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let mut layout = Layout::default().direction(Direction::Vertical).dynamic();
 
-        // title:
-        let title = "🔬 JavaScript Regex Tester 🧪 ".bold().fg(Color::Yellow).into_centered_line();
         layout.add(
             Constraint::Length(1),
-            title
+            "🔬 JavaScript Regex Tester 🧪 ".bold().fg(Color::Yellow).into_centered_line()
         );
 
         // regex
+        let regex = Paragraph::new( Text::from(self.regex.as_str()) )
+            .block(block()
+            .title(" RegEx ".to_line().right_aligned())
+        );
         layout.add(
             Constraint::Length(3), 
-            Paragraph::new( Text::from(self.regex.as_str()) )
-                .block(block()
-                .title(" RegEx ".to_line().right_aligned())
-            )
+            regex
         );
 
         // Error
-        if let Some(error) = &self.error {
+        let err = {
             let title = " Error ".to_line().right_aligned();
             let block = block().title(title).border_style(Color::Red);
+            let error = self.error.as_ref().map(|it| it.as_str()).unwrap_or_default();
+            Paragraph::new(error)
+                .block(block)
+                .wrap(Wrap{trim: false})
+        };
+
+        if let Some(_error) = &self.error {
             layout.add(
                 Constraint::Length(3),
-                Paragraph::new(error.to_text())
-                    .block(block)
-                    .wrap(Wrap{trim: false})
+                err
             )
         }
 
@@ -280,36 +286,48 @@ impl Widget for &App {
             ]).fg(Color::White).centered();
     
             let match_txt = Line::from(match_txt).centered();
-            Hilighted {
+            // Hilighted {
+            //     block: block()
+            //         .title(title)
+            //         .title(match_txt)
+            //         .title_bottom(footer)
+            //         .padding(Padding::ZERO)
+            //         .borders(Borders::ALL),
+            //     matches: &self.matches,
+            //     text: &self.body.text(),
+            // }
+
+            Blocked {
+                widget: RefOrDyn::Ref(&self.body),
                 block: block()
-                    .title(title)
+                .title(title)
                     .title(match_txt)
                     .title_bottom(footer)
                     .padding(Padding::ZERO)
                     .borders(Borders::ALL),
-                matches: &self.matches,
-                text: &self.body,
-            }
+            }            
         });
 
 
+        let debug = {
+            let title = " Event Debug ".to_line().right_aligned();
+            let seq_lines = self.seqs.iter()
+                .map(|s| {
+                    let ctrl = s.ctrl();
+                    format!("{s:?} {ctrl:?}")
+                })
+                .map(|s| Line::from(s))
+                .collect::<Vec<_>>()
+            ;
+            let seq_text = Text::from(seq_lines);
+            Paragraph::new(seq_text)
+                // .centered()
+                .block(block()
+                .title(title).borders(Borders::all()))
+        };
+
         if self.debug {
-            layout.add( Constraint::Min(12), {
-                let title = " Event Debug ".to_line().right_aligned();
-                let seq_lines = self.seqs.iter()
-                    .map(|s| {
-                        let ctrl = s.ctrl();
-                        format!("{s:?} {ctrl:?}")
-                    })
-                    .map(|s| Line::from(s))
-                    .collect::<Vec<_>>()
-                ;
-                let seq_text = Text::from(seq_lines);
-                Paragraph::new(seq_text)
-                    // .centered()
-                    .block(block()
-                    .title(title).borders(Borders::all()))
-            });
+            layout.add( Constraint::Min(12), debug);
         }
 
         layout.render(area, buf);       
