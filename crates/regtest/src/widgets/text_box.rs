@@ -8,6 +8,8 @@ use textwrap::{self, Options};
 /// TODO: Track cursor position. (Deal with trimmed spaces?)
 pub struct TextBox {
     text: String,
+    /// Text position within the string, according to Rust, which uses utf8-byte offsets.
+    text_pos_in_bytes: usize,
 
     // May need to be updated during rendering.
     state: RefCell<State>,
@@ -31,6 +33,71 @@ impl TextBox {
     pub fn text(&self) -> &str {
         self.text.as_str()
     }
+    
+    pub fn handle_input(&mut self, seq: ratatui_wasm_backend::anes::parser::KeyCode) {
+        use ratatui_wasm_backend::anes::parser::KeyCode as Code;
+        match seq {
+            Code::Backspace => {
+                self.backspace()
+            },
+            Code::Delete => {},
+            Code::Enter => {
+                self.insert('\n');
+            },
+            Code::Left => {},
+            Code::Right => {},
+            Code::Up => {},
+            Code::Down => {},
+            Code::Home => {},
+            Code::End => {},
+            Code::PageUp => {},
+            Code::PageDown => {},
+            Code::BackTab => {},
+
+            Code::Tab
+            | Code::Insert => {
+                // Do nothing
+            },
+            Code::F(_) => {},
+            Code::Char(c) => {
+                self.insert(c);
+            },
+            Code::Null => {},
+            Code::Esc => {},
+        }
+    }
+    
+    fn dirty(&mut self) {
+        let mut state = self.state.borrow_mut();
+        state.dirty = true;
+    }
+    
+    fn insert(&mut self, c: char) {
+        self.text.insert(self.text_pos_in_bytes, c);
+        self.text_pos_in_bytes += c.len_utf8();
+        self.dirty();
+    }
+
+    fn backspace(&mut self) {
+        if self.text_pos_in_bytes == 0 {
+            // Set beep?
+            return
+        }
+        if self.text_pos_in_bytes > self.text.len() {
+            self.text_pos_in_bytes = self.text.len()
+        }
+
+        for char_offset in 1..=4 {
+            let idx = self.text_pos_in_bytes - char_offset;
+            if self.text.is_char_boundary(idx) {
+                self.text.remove(idx);
+                self.text_pos_in_bytes = idx;
+                break;
+            }
+        }
+
+        self.dirty();
+    }
 }
 
 impl TextBox {
@@ -51,6 +118,7 @@ impl <T: ToString> From<T> for TextBox {
     fn from(value: T) -> Self {
         Self {
             text: value.to_string(),
+            text_pos_in_bytes: 0,
             state: RefCell::new(State {
                 dirty: true,
                 last_wrap_width: 0,

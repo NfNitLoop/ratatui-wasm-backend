@@ -102,6 +102,7 @@ impl Drop for Main {
 
 /// Application state.
 pub struct App {
+    // TODO: Move this into its own TextBox widget.
     // as input by the user:
     regex: String,
 
@@ -121,6 +122,8 @@ pub struct App {
 
     // Used for debugging
     seqs: VecDeque<Sequence>,
+
+    active_widget: ActiveWidget,
     
 }
 
@@ -135,6 +138,7 @@ impl Default for App {
             beep: false,
             error: None,
             matches: vec![],
+            active_widget: Default::default(),
         };
         new_self.calc_matches();
         new_self
@@ -144,9 +148,14 @@ impl Default for App {
 impl App {
     fn recv_sequence(&mut self, seq: Sequence) -> Result<()> {
         match seq {
+            Sequence::Mouse(_,_) => {},
+            Sequence::CursorPosition(_,_) => {},
             Sequence::Key(code, modifiers) => match code {
                 KeyCode::Esc => {
                     Err("quit")?;
+                },
+                KeyCode::Tab => {
+                    self.active_widget.next()
                 },
                 seq if seq.ctrl() == Some(Ctrl::C) => {
                     Err("quit")?;
@@ -156,6 +165,9 @@ impl App {
                 }
                 KeyCode::Char('d') if modifiers == KeyModifiers::ALT => {
                     self.toggle_debug();
+                },
+                seq if self.delegate_input(seq) => {
+                    // Input was handled by another widget.
                 },
                 _ if !modifiers.is_empty() => {
                     self.beep = true;
@@ -170,8 +182,7 @@ impl App {
                     self.beep = true;
                 }
             },
-            Sequence::Mouse(_,_) => {},
-            Sequence::CursorPosition(_,_) => {},
+
         };
 
         self.add_debug_seq(seq);
@@ -220,6 +231,18 @@ impl App {
 
         self.error = None;
     }
+    
+    fn delegate_input(&mut self, seq: KeyCode) -> bool {
+        match self.active_widget {
+            ActiveWidget::Regex => {
+                return false
+            },
+            ActiveWidget::TextBox => {
+                self.body.handle_input(seq);
+                return true
+            }
+        }
+    }
 }
 
 fn block() -> Block<'static> {
@@ -230,7 +253,6 @@ fn block() -> Block<'static> {
         .padding(Padding::bottom(1))
 }
 
-// TODO: Switch to a statefulWidgetRef so that we can get back the cursor position after render.
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let mut layout = Layout::default().direction(Direction::Vertical).dynamic();
@@ -242,9 +264,11 @@ impl Widget for &mut App {
 
         // regex
         let regex = Paragraph::new( Text::from(self.regex.as_str()) )
-            .block(block()
-            .title(" RegEx ".to_line().right_aligned())
-        );
+            .block(
+                block()
+                .title(" RegEx ".to_line().right_aligned())
+                .border_style(self.active_widget.color_for(ActiveWidget::Regex))
+            );
         layout.add(
             Constraint::Length(3), 
             regex
@@ -286,6 +310,8 @@ impl Widget for &mut App {
             ]).fg(Color::White).centered();
     
             let match_txt = Line::from(match_txt).centered();
+
+            // TODO: Re-enable highlighting
             // Hilighted {
             //     block: block()
             //         .title(title)
@@ -300,11 +326,12 @@ impl Widget for &mut App {
             Blocked {
                 widget: RefOrDyn::Ref(&self.body),
                 block: block()
-                .title(title)
+                    .title(title)
                     .title(match_txt)
                     .title_bottom(footer)
                     .padding(Padding::ZERO)
-                    .borders(Borders::ALL),
+                    .borders(Borders::ALL)
+                    .border_style(self.active_widget.color_for(ActiveWidget::TextBox)),
             }            
         });
 
@@ -331,5 +358,36 @@ impl Widget for &mut App {
         }
 
         layout.render(area, buf);       
+    }
+}
+
+#[derive(PartialEq)]
+enum ActiveWidget {
+    Regex,
+    TextBox,
+}
+
+impl ActiveWidget {
+    fn next(&mut self) {
+        use ActiveWidget::*;
+        *self = match self {
+            Regex => TextBox,
+            TextBox => Regex,
+        }
+    }
+    
+    fn color_for(&self, this_widget: ActiveWidget) -> ratatui::style::Color {
+        use ratatui_wasm_backend::ratatui::style::Color as RColor;
+        if self == &this_widget {
+            RColor::White
+        } else {
+            RColor::DarkGray
+        }
+    }
+}
+
+impl Default for ActiveWidget {
+    fn default() -> Self {
+        Self::Regex
     }
 }
